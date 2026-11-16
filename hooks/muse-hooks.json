@@ -1,0 +1,6 @@
+{
+  "_todo": "Muse hooks are only partly documented. PreToolUse is confirmed; add needs_input/done/clear once Muse's event names are verified. Goes in .muse/hooks.json (per project) or via managed_hooks_path.",
+  "hooks": {
+    "PreToolUse": [{ "hooks": [{ "type": "command", "command": "agentlight muse working" }] }]
+  }
+}

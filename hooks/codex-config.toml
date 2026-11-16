@@ -1,0 +1,3 @@
+# Codex notify fires on turn completion only, so Codex shows "done" only.
+# Codex appends a JSON payload as the last argument; agentlight parses it.
+notify = ["agentlight", "codex", "done"]

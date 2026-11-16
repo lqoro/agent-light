@@ -1,0 +1,9 @@
+{
+  "hooks": {
+    "enabled": true,
+    "BeforeAgent":  [{ "hooks": [{ "type": "command", "command": "agentlight gemini working" }] }],
+    "Notification": [{ "hooks": [{ "type": "command", "command": "agentlight gemini needs_input" }] }],
+    "AfterAgent":   [{ "hooks": [{ "type": "command", "command": "agentlight gemini done" }] }],
+    "SessionEnd":   [{ "hooks": [{ "type": "command", "command": "agentlight gemini clear" }] }]
+  }
+}

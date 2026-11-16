@@ -1,0 +1,108 @@
+#!/usr/bin/python3
+"""agentlight <agent> <state> [session] | status | test <state>. Never fails a hook."""
+import json, os, re, select, sys, time
+
+DIR = os.path.expanduser("~/.agentlight/state")
+STATES = ("working", "needs_input", "done", "error", "idle", "clear")
+TERMS = {"Apple_Terminal": "com.apple.Terminal", "iTerm.app": "com.googlecode.iterm2",
+         "vscode": "com.microsoft.VSCode", "ghostty": "com.mitchellh.ghostty",
+         "WarpTerminal": "dev.warp.Warp-Stable"}
+
+
+def clean(s):
+    return re.sub(r"[^A-Za-z0-9_-]", "", str(s or "")) or "default"
+
+
+def read_payload(argv):
+    """Hook JSON from stdin (Claude/Gemini) or last argv (Codex notify)."""
+    if argv and argv[-1].lstrip().startswith("{"):
+        try:
+            return json.loads(argv[-1])
+        except Exception:
+            pass
+    try:
+        if not sys.stdin.isatty() and select.select([sys.stdin], [], [], 0.3)[0]:
+            return json.loads(sys.stdin.read() or "{}")
+    except Exception:
+        pass
+    return {}
+
+
+def status():
+    now = time.time()
+    rows = []
+    for f in sorted(os.listdir(DIR)) if os.path.isdir(DIR) else []:
+        try:
+            d = json.load(open(os.path.join(DIR, f)))
+            rows.append((d["agent"], d["state"], int(now - d["ts"]), os.path.basename(d.get("cwd", "")), d.get("message", "")))
+        except Exception:
+            pass
+    for a, s, age, proj, msg in rows:
+        print(f"{a:8} {s:12} {age:>5}s  {proj:20} {msg[:60]}")
+    if not rows:
+        print("no sessions")
+
+
+APPS = {"claude": "com.anthropic.claudefordesktop", "codex": "com.openai.codex",
+        "gemini": "com.google.GeminiMacOS", "muse": "com.meta.endo"}
+
+
+def pin(args):
+    """agentlight pin <agent> <slug> <title> [message]: a to-do that stays until marked Done."""
+    agent, slug, title = clean(args[0]).lower(), clean(args[1]), args[2]
+    msg = args[3] if len(args) > 3 else ""
+    os.makedirs(DIR, exist_ok=True)
+    path = os.path.join(DIR, f"{agent}__pin-{slug}.json")
+    tmp = path + f".{os.getpid()}.tmp"
+    with open(tmp, "w") as f:
+        json.dump({"agent": agent, "state": "pinned", "ts": time.time(), "cwd": "", "title": title[:80],
+                   "message": " ".join(str(msg).split())[:200], "term_app": APPS.get(agent, ""),
+                   "url": args[4] if len(args) > 4 else "",
+                   "session": "pin-" + slug}, f)
+    os.replace(tmp, path)
+
+
+def main():
+    argv = sys.argv[1:]
+    if argv[:1] == ["status"]:
+        return status()
+    if argv[:1] == ["pin"] and len(argv) >= 4:
+        return pin(argv[1:])
+    if argv[:1] == ["unpin"] and len(argv) >= 3:
+        p = os.path.join(DIR, f"{clean(argv[1]).lower()}__pin-{clean(argv[2])}.json")
+        return os.remove(p) if os.path.exists(p) else None
+    test = argv[:1] == ["test"]
+    if test:
+        argv = ["claude", argv[1], "test"] if len(argv) > 1 else []
+    if len(argv) < 2:
+        return
+    agent, state = clean(argv[0]).lower(), argv[1]
+    if state not in STATES:
+        return
+    p = {} if test else read_payload(argv)
+    session = clean(argv[2] if len(argv) > 2 and not argv[2].startswith("{") else
+                    p.get("session_id") or p.get("thread-id") or p.get("thread_id") or p.get("turn-id"))
+    path = os.path.join(DIR, f"{agent}__{session}.json")
+    if state in ("idle", "clear"):
+        if os.path.exists(path):
+            os.remove(path)
+        return
+    msg = p.get("message") or ""
+    if state == "done":
+        msg = p.get("last_assistant_message") or p.get("last-assistant-message") or msg
+    cwd = p.get("cwd") or os.getcwd()
+    term = os.environ.get("__CFBundleIdentifier") or TERMS.get(os.environ.get("TERM_PROGRAM", ""), "")
+    msg = " ".join(str(msg).split())[:200]
+    os.makedirs(DIR, exist_ok=True)
+    tmp = path + f".{os.getpid()}.tmp"
+    with open(tmp, "w") as f:
+        json.dump({"agent": agent, "state": state, "ts": time.time(), "cwd": cwd,
+                   "message": msg, "term_app": term, "session": session}, f)
+    os.replace(tmp, path)
+
+
+try:
+    main()
+except BaseException:
+    pass
+sys.exit(0)
